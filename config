@@ -1,0 +1,27 @@
+== this is a commentary;
+
+== Arithmetics tests;
+
+test_simple =add (\a(a) 3) 2;
+test_calcul = add (sub 4 120) (mul 3 5);
+
+== Function Logicistic tests;
+
+test_fct = \ n (add n 2);
+test_plus4 = fct 2;
+test_plus5 = fct 3;
+
+== Booleans tests;
+
+test_if = if (true) 50 60;
+test_if2 = if (false) 50 60;
+test_if3 = if (and false true) 50 60;
+test_if4 = if (and true true) 50 60;
+test_if5 = if (or false true) 50 60;
+test_if6 = if (and (not false) true) 50 60;
+
+== Recursive tests;
+
+test_rec1 = \n (add ((if (eq n 0) (cste 0) (\x (test_rec1 (sub n 1)))) 0) 100);
+test_rec1_1 = test_rec1 0;
+test_rec1_2 = test_rec1 5;
