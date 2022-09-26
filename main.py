@@ -8,7 +8,7 @@ def main():
   try:
     psr.parse()
   except StackOverflow:
-    print("sadge :(")
+    print("\n\nCUSTOM STACK OVERFLOW!")
   psr.start()
 
 
