@@ -1,20 +1,19 @@
-== this is a commentary;
+# this is a commentary;
 
-== Arithmetics tests;
+# Arithmetics tests;
 
 test_arth = add (id 3) 2;
 test_arth2 = add (sub 4 120) (mul 3 5);
 
-== Function basic tests;
+# Function basic tests;
 
 test_fct_add_two = \n(add n 2);
-test_fct_add_two1 = fct 1;
-test_fct_add_two2 = fct 2;
+test_fct_add_two1 = test_fct_add_two 1;
+test_fct_add_two2 = test_fct_add_two 2;
 test_fct_double = \n(\x(add n x));
 test_fct_double1 = test_fct_double 3 4;
 
-
-== Booleans tests;
+# Booleans tests;
 
 test_if = if (true) 50 60;
 test_if2 = if (false) 50 60;
@@ -23,33 +22,62 @@ test_if4 = if (and true true) 50 60;
 test_if5 = if (or false true) 50 60;
 test_if6 = if (and (not false) true) 50 60;
 
-== Delayed expressions;
+# Delayed expressions;
 
 test_delay1 = add 2 [add 4 5];
 test_delay2 = if (eq 0 1) [test_delay2] 3;
-test_delay3 = \n(if (eq 0 1) [test_delay3 n] 100); == Changing [test_delay3 n] to (test_delay3 n) will break the code !;
+test_delay3 = \n(if (eq 0 1) [test_delay3 n] 100); # Changing [test_delay3 n] to (test_delay3 n) will break the code !;
 test_delay3_val = test_delay3 1;
 
-== Fibonacci;
+# Fibonacci;
 
 test_fibo = \n(if (ls n 1) 1 [add (test_fibo (sub n 1)) (test_fibo (sub n 2))]);
-test_fibo1 = test_fibo 1;
-test_fibo2 = test_fibo 2;
-test_fibo3 = test_fibo 3;
-test_fibo4 = test_fibo 4;
-test_fibo5 = test_fibo 5;
+test_fibo_all = map (range 0 5) \n(test_fibo n);
 
-== Function as argument;
+# Function as argument;
 
 test_eval = __evaluate_with_1 \n(add n 1);
-== test_eval2 = __evaluate_with_two_1s \n(\t(add n t));
+test_eval2 = __evaluate_with_two_1s \n(\t(add n t));
+
+# Advanced list functions ;
+
+test_coll1 = collect (range 1 10) 0 (\r(\x(add x r))); # Sum of naturals from 1 to 10;
+
+test_random_list = map (range 1 23) (\n(mod (mul 16 n) 23)); # "Random" list of number;
+test_small_random_list = map (range 1 7) (\n(mod (mul 5 n) 7)); # Smaller "Random" list of number;
+
+max_lint = \list(collect list 0 (\r(\x(max x r))));
+min_lint = \list(collect list 0 (\r(\x(min x r))));
+remove = \list(\element(filter list (\x(not(eq x element)))));
+unpack = \list(append (t_list (index list 0)) (remove list (index list 0)));
 
 
-== test_coll1 = collect (range 1 10) 0 (\rec(\xoop(add xoop rec))); == Sum of naturals from 1 to 10;
-== test_coll2 = collect (range 1 10) 0 (\r(\x(add x r))); == Max of a list;
 
-== Recursive tests;
+test_remove = remove test_random_list 3;
+test_remove2 = remove test_remove 4;
+test_remove3 = remove test_remove2 22;
+test_remove4 = remove test_remove3 -3;
+test_max_lint1 = max_lint test_remove4;
 
-== test_rec1 = \n (add (if (eq n 0) 0 [test_rec1 (sub n 1)] ) 100);
-== test_rec1_1 = test_rec1 0;
-== test_rec1_2 = test_rec1 5;
+test_coll2 = max_lint test_random_list;
+
+simple_sort = \list(
+    if (eq (len list) 0) e_list
+    [append
+        (simple_sort (remove list (max_lint list)))
+        (max_lint list)
+    ]
+    );
+
+
+test_sorted = simple_sort (t_list 2);
+test_sorted2 = simple_sort test_random_list;
+
+# infinite = \n (if (eq n 0) 0 [infinite (add n 1)]);
+# infinite1 = infinite 1; 
+
+# Recursive tests;
+
+# test_rec1 = \n (add (if (eq n 0) 0 [test_rec1 (sub n 1)] ) 100);
+# test_rec1_1 = test_rec1 0;
+# test_rec1_2 = test_rec1 5;

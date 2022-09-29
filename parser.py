@@ -12,19 +12,32 @@
 
 from textwrap import shorten
 
-
 class StackOverflow (Exception):
   pass
+class UnknowLitteral (Exception):
+  pass
+class UnclosedBrackets (Exception):
+  pass
+
+
+
+def find_next_brackets(string,open,close):
+  counter = 0 
+  for x in range(len(string)):
+    if string[x] == open:counter += 1
+    elif string[x] == close: counter -= 1
+    if counter == 0:
+      return x
+  return 0
+
 
 class ConfigParser:
 
-  STACK_LIMIT = 50
+  STACK_LIMIT = 300 # t_lim = 333
 
-  def __init__(self,file):
-    self.file = file
-    f = open(file,"r")
-    self.content = f.read()
+  def __init__(self):
     self.ctx = 0
+    self.path = []
 
     # A fonction is either a tuple (argument, code) or a lambda expression for defaults / optimized one
     
@@ -43,26 +56,26 @@ class ConfigParser:
         expr_ = v(expr)
         r_d = expr_(r)
         r_ = v(r_d)
-        print("IN FOR X:",x,'TYPE:',type(x))
-        print("IN FOR R_:",r_,'TYPE:',type(r_))
         x_ = r_(x)
         r = v(x_)
-        print("  "*self.ctx+"for, x:",x,"and r:",r)
       return r
     
-    def iter_(li,expr):
+    def map_(li,expr):
       r = []
       for x in v(li):
         r.append(v(v(expr)(x)))
-        print("  "*self.ctx+"iter, x =",x,"r =",r)
       return r
     
     def filter_(li,expr):
       r = []
       for x in v(li):
         if v(v(expr)(x)): r.append(x)
-        print("  "*self.ctx+"filter, x =",x,"r =",r)
       return r
+    
+    def eq(a,b):
+      print("  "*self.ctx+"testing",v(a),"==",v(b),"(so result is",v(a)==v(b),")")
+      return v(a) == v(b)
+
 
 
     # defaults are lambda-defined
@@ -71,13 +84,14 @@ class ConfigParser:
       "id":lambda x:x,
       "cste": lambda a: lambda b:v(a),
       "if": lambda test: lambda a: lambda b: v(a) if v(test) else v(b),
+      "=":lambda a: ("a","="), # commentary
 
-      # test test
+      # test tests
       "__evaluate_with_1":lambda fct: v(v(fct)(1)),
       "__evaluate_with_two_1s":lambda fct: v(v(v(fct)(1))(1)),
 
       # test conditions
-      "eq": lambda a: lambda b: v(a) == v(b),
+      "eq": lambda a: lambda b: eq(a,b),
       "ls": lambda a: lambda b: v(a) < v(b),
       "le": lambda a: lambda b: v(a) <= v(b),
       "gt": lambda a: lambda b: v(a) > v(b),
@@ -99,14 +113,16 @@ class ConfigParser:
 
       # usual list functions
       "t_list": lambda a: [v(a)],
-      "append": lambda a: lambda b: v(a).append(v(b)),
+      "e_list": [],
+      "append": lambda a: lambda b: v(a)+[v(b)],
+      "len":lambda x: len(v(x)),
       "index": lambda a: lambda b: v(a)[v(b)],
       "range": lambda a: lambda b: [x for x in range(v(a),v(b))],
 
       # list global operations
       "collect": lambda li: lambda default: lambda expr: collect_(li,default,expr),
       "filter": lambda li: lambda cond: filter_(li,cond),
-      "iter": lambda li: lambda expr: iter_(li,expr),
+      "map": lambda li: lambda expr: map_(li,expr),
 
       # bools
       "true": True,
@@ -116,14 +132,22 @@ class ConfigParser:
       "not": lambda a: not v(a),
       
     }
-    f.close()
 
   def get_expr(self,string):
-    if string in self.vars.keys():
-      return self.vars[string]
-    else:
-      try: return int(string)
-      except ValueError:pass
+    act_path = ""
+    search_paths = [""]
+    for x in self.path:
+      search_paths.append(search_paths[-1]+x+".")
+    
+    print("  "*self.ctx+"searching for",string,"in paths",search_paths[::-1])
+
+    for path in search_paths[::-1]:
+      if path+string in self.vars.keys():
+        return self.vars[path+string]
+    try: return int(string)
+    except ValueError:
+      pass
+      raise UnknowLitteral
 
   # use to evaluate `res` with a value `val`
   def exec(self,res,val):
@@ -141,9 +165,9 @@ class ConfigParser:
         print("  "*self.ctx+"setting",res[0],":=",val,"for evalating `"+res[1]+"` with param ",res[2])
         context_vars = [(key,self.vars.get(key,None)) for key,_ in res[2]]
         context_vars.append((res[0],self.vars.get(res[0],None)))
-        self.vars[res[0]] = val
         for key,value in res[2]:
           self.vars[key] = value
+        self.vars[res[0]] = val
       
       ret = self.execute(res[1])
       
@@ -151,7 +175,6 @@ class ConfigParser:
         ret[2].append((res[0],val))
       
       for k,v in context_vars:
-        print(k,v)
         if v == None: del self.vars[k]
         else:self.vars[k] = v
     
@@ -167,9 +190,10 @@ class ConfigParser:
     string += " "
     shorten = string if len(string) <= 40 else string[:40]+"..."
 
-    print("  "*self.ctx+">> Computing `"+shorten+"` <<")
+    print("  "*self.ctx+">> Computing `"+string+"` <<")
 
     self.ctx += 1
+    self.rec_counter = max(self.ctx,self.rec_counter)
     if self.ctx >= self.STACK_LIMIT:
       raise StackOverflow
     
@@ -177,6 +201,7 @@ class ConfigParser:
     state = "normal"
     data = ""
     i = 0
+
 
     while i < len(string):
 
@@ -188,28 +213,43 @@ class ConfigParser:
           
           if data != "":result = self.exec(result,self.get_expr(data))
           data = ""
-          counter = 0 # find the end of the opening brakets
-          for x in range(i,len(string)):
-            if string[x] == "(":counter += 1
-            elif string[x] == ")": counter -= 1
-            if counter == 0:
-              result = self.exec(result,self.execute(string[i+1:x]))
-              i = x
-              break
+          place = find_next_brackets(string[i:],"(",")")
+          # print("  "*self.ctx+"Finding closed at",place,"for",string[i:])
+          if place != 0:
+            result = self.exec(result,self.execute(string[i+1:i+place]))
+            i += place
+          else:
+            raise UnclosedBrackets()
         
         elif char == "[": # if we have a delayed expression
           
           if data != "":result = self.exec(result,self.get_expr(data))
           data = ""
-          counter = 0 # find the end of the opening brakets
-          for x in range(i,len(string)):
-            if string[x] == "[":counter += 1
-            elif string[x] == "]": counter -= 1
-            if counter == 0:
-              result = self.exec(result,(None,(string[i+1:x])))
-              i = x
-              break
+          place = find_next_brackets(string[i:],"[","]")
+          if place != 0:
+            result = self.exec(result,(None,(string[i+1:i+place])))
+            i += place
+          else:
+            raise UnclosedBrackets()
         
+        elif char == "{":
+          
+          if data != "":result = self.exec(result,self.get_expr(data))
+          data = ""
+          self.path.append("INNER")
+          print("  "*self.ctx,"Executing block in ctx:",".".join(self.path))
+
+          place = find_next_brackets(string[i:],"{","}")
+          if place != 0:
+            self.parse(string[i+1:i+place])
+            del self.path[-1]
+            result = self.exec(result,self.get_expr("INNER"))
+            i += place
+          else:
+            raise UnclosedBrackets()
+          
+
+
         # end of current fetching and evaluation of result
         elif char == " " and data != "" :
           
@@ -229,21 +269,35 @@ class ConfigParser:
       elif state == "link":
         # end of the fetching for the variable's name
         if char == "(":
-          print("  "*self.ctx + "End of fetching variables:`"+data+"`")
-          counter = 0 # find the end of the opening brakets
-          for x in range(i,len(string)):
-            if string[x] == "(":counter += 1
-            elif string[x] == ")": counter -= 1
-            if counter == 0:
+          print("  "*self.ctx + "End of fetching variables for fct:`"+data+"`")
+
+          place = find_next_brackets(string[i:],"(",")")
+          if place != 0:
+            print("  "*self.ctx + "Applying custom fct to result (execute)")
               
-              print("  "*self.ctx + "Applying custom fct to result (execute)")
+            fct_data = (data,string[i+1:i+place],[]) # context
+            result = self.exec(result,fct_data)
+            data = ""
+            i += place
+            state = "normal"
+            break
+          else:
+            raise UnclosedBrackets
+        elif char == "{":
+          print("  "*self.ctx + "End of fetching variables for block:`"+data+"`")
+
+          place = find_next_brackets(string[i:],"{","}")
+          if place != 0:
+            print("  "*self.ctx + "Applying custom fct to result (execute)")
               
-              fct_data = (data,string[i+1:x],[]) # context
-              result = self.exec(result,fct_data)
-              data = ""
-              i = x
-              state = "normal"
-              break
+            fct_data = (data,string[i:i+place+1],[]) # context
+            result = self.exec(result,fct_data)
+            data = ""
+            i += place
+            state = "normal"
+            break
+          else:
+            raise UnclosedBrackets
         else:
           data += char
       i+=1
@@ -257,68 +311,64 @@ class ConfigParser:
     return result
 
 
-  def parse(self):
+  def parse(self,string):
 
-    # states = ["nom", "val>expression","clé>expression","clé"]
+    # state in ["clef", "val","clefC", "valC"]
     
-    state = "nom"
-    data = [""]
-    for char in self.content:
+    state = "clef"
+    i = 0
+    self.path.append("")
+    while i <len(string):
+      char = string[i]
 
-      if state == "nom":
+
+      if state == "clef":
         if char == "=":
-          state = "val>expression"
-          data.append("")
+          state = "val"
+          self.path.append("")
         elif char == "{":
-          state = "clé"
-          data.append("")
-        else:
-          data[-1]+=char
-      
-      elif state == "val>expression":
-        if char == ";":
-          data = [ x.strip() for x in data]
-          state = "nom"
-
-          if data[0] == "":
-            print("Empty key ignored\n")
-          else:
-            print("\n --- New Key ---\nSetting `"+str(data[0])+"`")
-            self.vars[data[0]] = self.execute(data[-1])
-            print("Key added.\n")
-          data = [""]
-        else:
-          data[-1]+= char
-        
-
-      elif state == "clé>expression":
-        if char == ";":
-
-          data = [ x.strip() for x in data]
-          state = "clé"
-          if data[1] == "":
-            print("Empty key ignored.\n")
-          else:
-            print("\n --- New Emm Key ---\nSetting `"+data[0]+"."+data[1]+"`")
-            self.vars[data[0]+"."+data[1]] = self.execute(data[-1])
-            print("Emm Key added.\n")
-          data[-1] = ""
-        else:
-          data[-1]+= char
-      
-      elif state == "clé":
-        if char == "=":
-          print("clé->=")
-          state = "clé>expression"
-          data.append("")
+          self.path.append("")
         elif char == "}":
-          print("clé->}")
-          data = [""]
-          state = "nom"
+          del self.path[-1]
+          self.path[-1] = ""
+        elif char == "#":
+          state="clefC"
         else:
-          data[-1]+=char
-    
-      else:raise Exception("Unknow State in Config Parser")
+          self.path[-1]+=char
+      
+      elif state == "clefC":
+        if char == "#" or char == "\n":state = "clef"
+      elif state == "val":
+        if char == "{":
+          place = find_next_brackets(string[i:],"{","}")
+          if place != 0:
+            self.path[-1] += string[i:i+place+1]
+            i += place
+          else:
+            raise UnclosedBrackets
+
+        elif char == ";":
+          self.path = list(filter(lambda x: x != "", [ x.strip() for x in self.path]))
+          self.path,code = self.path[:-1],self.path[-1]
+          state = "clef"
+          path_str = ".".join(self.path)
+
+          print("  "*self.ctx +"\n --- New Key ---\nSetting `"+path_str+"`")
+          self.rec_counter = 0
+          self.vars[path_str] = self.execute(code)
+          print("  "*self.ctx +"Key added. rec_counter="+str(self.rec_counter)+"\n")
+          self.path[-1] = ""
+        elif char == "}":
+          del self.path[-1]
+          self.path[-1] = ""
+        elif char == "#":
+          state = "valC"
+        else:
+          self.path[-1]+= char
+      elif state == "valC":
+        if char == "#" or char == "\n":state = "val"
+       
+      i+= 1 
     print(vars)
 
 

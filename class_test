@@ -1,0 +1,21 @@
+global = 999;
+
+a {
+  b{
+    test=9;
+    c{
+      test = add b.test 1;
+    }
+  }
+  b2{
+    test=99;
+    c{
+      test=add b.test 1;
+      test2=add b2.test 1;
+      test3=add global 1;
+    }
+    c2 = add global 1;
+  }
+}
+
+test = add a.b2.c.test 90;
