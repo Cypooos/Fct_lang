@@ -9,18 +9,25 @@
 #  nom := <LETTERS><CHAR>*
 #  expression := nom | \ nom ... nom ( expression ) | expression expression
 #  ________________________________________
-
-from textwrap import shorten
+from random import randint
 
 class StackOverflow (Exception):
   pass
+
 class UnknowLitteral (Exception):
   pass
+
 class UnclosedBrackets (Exception):
   pass
 
+class WrongArgument (Exception):
+  pass
+
+class EmptyExpression (Exception):
+  pass
 
 
+# find in string the indice of the end of the opening brackets 
 def find_next_brackets(string,open,close):
   counter = 0 
   for x in range(len(string)):
@@ -33,58 +40,36 @@ def find_next_brackets(string,open,close):
 
 class ConfigParser:
 
-  STACK_LIMIT = 300 # t_lim = 333
+  STACK_LIMIT = 30 # t_lim = 333
 
   def __init__(self):
     self.ctx = 0
     self.path = []
 
-    # A fonction is either a tuple (argument, code) or a lambda expression for defaults / optimized one
+    # A function is either a tuple (argument, code, path, ctx_var) or a lambda expression for defaults fcts
     
     # In case an argument is a delayed expression / function, we need the real argument / as a lambda python function
     def v(x):
       if isinstance(x, tuple) and x[0] == None:
-        return self.execute(x[1])
+        return v(self.exec(x,None))
       elif isinstance(x,tuple):
         return lambda t: self.exec(x,t)
       else: return x
     
-    def collect_(li,default,expr):
-      r = v(default)
-      for x in v(li):
-        x = v(x)
-        expr_ = v(expr)
-        r_d = expr_(r)
-        r_ = v(r_d)
-        x_ = r_(x)
-        r = v(x_)
-      return r
-    
-    def map_(li,expr):
-      r = []
-      for x in v(li):
-        r.append(v(v(expr)(x)))
-      return r
-    
-    def filter_(li,expr):
-      r = []
-      for x in v(li):
-        if v(v(expr)(x)): r.append(x)
-      return r
-    
+    # for debbugging purposes, those two function are defined here
+    def add(a,b):
+      print("  "*self.ctx+"Adding ",v(a),v(b))
+      return v(a)+v(b)
     def eq(a,b):
       print("  "*self.ctx+"testing",v(a),"==",v(b),"(so result is",v(a)==v(b),")")
       return v(a) == v(b)
 
-
-
-    # defaults are lambda-defined
+    # defaults function are lambda-defined
     self.vars = {
       # classic
       "id":lambda x:x,
       "cste": lambda a: lambda b:v(a),
       "if": lambda test: lambda a: lambda b: v(a) if v(test) else v(b),
-      "=":lambda a: ("a","="), # commentary
 
       # test tests
       "__evaluate_with_1":lambda fct: v(v(fct)(1)),
@@ -98,7 +83,7 @@ class ConfigParser:
       "ge": lambda a: lambda b: v(a) >= v(b),
       
       # int
-      "add": lambda a: lambda b: v(a)+v(b),
+      "add": lambda a: lambda b: add(a,b),
       "sub": lambda a: lambda b: v(a)-v(b),
       "mul": lambda a: lambda b: v(a)*v(b),
       "div": lambda a: lambda b: v(a)//v(b),
@@ -109,20 +94,12 @@ class ConfigParser:
       # cvrt
       "int":lambda a: int(v(a)),
       "flt": lambda a: float(v(a)),
-      "str": lambda a: str(v(a)),
 
-      # usual list functions
-      "t_list": lambda a: [v(a)],
-      "e_list": [],
-      "append": lambda a: lambda b: v(a)+[v(b)],
-      "len":lambda x: len(v(x)),
-      "index": lambda a: lambda b: v(a)[v(b)],
-      "range": lambda a: lambda b: [x for x in range(v(a),v(b))],
-
-      # list global operations
-      "collect": lambda li: lambda default: lambda expr: collect_(li,default,expr),
-      "filter": lambda li: lambda cond: filter_(li,cond),
-      "map": lambda li: lambda expr: map_(li,expr),
+      # basic type-making functions
+      "empty": [],
+      "couple": lambda a: lambda b: [v(a),v(b)],
+      "fst": lambda a:v(a)[0],
+      "snd": lambda b:v(b)[1],
 
       # bools
       "true": True,
@@ -132,61 +109,125 @@ class ConfigParser:
       "not": lambda a: not v(a),
       
     }
+    # Aliases for default functions
+    for k,v_ in [
+        ("==","eq"),
+        (">=","ge"),
+        (">","gt"),
+        ("<=","le"),
+        ("<","ls"),
+        ("&&","and"),
+        ("||","or"),
+        ("!","not"),
+        ("+","add"),
+        ("-","sub"),
+        ("/","div"),
+        ("*","mul"),
+      ]:
+      self.vars[k] = self.vars[v_]
+
 
   def get_expr(self,string):
-    act_path = ""
+    print("Searching for",string,"in",self.path)
+    # list of path to search for in order (from more specific to less specific)
     search_paths = [""]
     for x in self.path:
       search_paths.append(search_paths[-1]+x+".")
+    search_paths = search_paths[::-1]
     
-    print("  "*self.ctx+"searching for",string,"in paths",search_paths[::-1])
+    # print("  "*self.ctx+"searching for",string,"in paths",search_paths)
 
-    for path in search_paths[::-1]:
+    for path in search_paths:
       if path+string in self.vars.keys():
+        #print("  "*self.ctx+"Found in",path)
         return self.vars[path+string]
+        
+    # if we didn't find the variable, check if it was a litteral 
     try: return int(string)
     except ValueError:
-      pass
-      raise UnknowLitteral
+      if string == "INNER": # if we were searching for "inner" but no var was found : return expression was empty
+        raise EmptyExpression from None
+      else:
+        raise UnknowLitteral
 
-  # use to evaluate `res` with a value `val`
-  def exec(self,res,val):
 
+  # use to evaluate `res` with a value `val`.
+  # if `res` is a delayed and `val` is None it will just execute res
+  def exec(self,res,val,inversed=False):
+
+    # print("  "*self.ctx+"self.exec with",res,val,inversed)
+
+    # if it's a default function
     if callable(res):
       return res(val)
 
+    # if it's a user-defined function
     elif isinstance(res, tuple):
 
-      if res[0] == None:
-        print("  "*self.ctx+"Delayed expression executed as it takes an argument")
-        context_vars = []
+      # get path to call fct:
+      if res[0] != None: res[3].append("X")
+      current = ".".join(res[3])
+      if current != "": current += "."
 
-      else:
-        print("  "*self.ctx+"setting",res[0],":=",val,"for evalating `"+res[1]+"` with param ",res[2])
-        context_vars = [(key,self.vars.get(key,None)) for key,_ in res[2]]
-        context_vars.append((res[0],self.vars.get(res[0],None)))
-        for key,value in res[2]:
-          self.vars[key] = value
-        self.vars[res[0]] = val
+      # Setting the variables. Calculating them if they are delayed before setting -> o(1) instead of o(usages)
+      to_del = []
+      for (to_set,set) in res[2]:
+        to_del.append(current+to_set)
+        if isinstance(set,tuple) and set[0] == None:
+          self.vars[current+to_set] = self.exec(set,None) 
+        else:self.vars[current+to_set] = set 
+      if res[0] != None:
+        to_del.append(current+res[0])
+        if isinstance(val,tuple) and val[0] == None:
+          self.vars[current+res[0]] = self.exec(val,None)
+        else:self.vars[current+res[0]] = val
+
+      # setting path
+      path_save = self.path.copy()
+      self.path = res[3].copy()
       
+      print("  "*self.ctx+"Setting",current+str(res[0]),":=",val,"for evalating `"+res[1]+"` with path",res[3],"and ctx var",res[2])
+      # print("\n\n ---- VARS are ----")
+      # print(self.path)
+      # self.start()
+
+      # executing the fct code / the delay code
       ret = self.execute(res[1])
       
-      if isinstance(ret,tuple) and ret[0] != None:
-        ret[2].append((res[0],val))
+      # restoring the path
+      self.path = path_save
+
+
+
+
+      # adding the context variables to the result if it's a function, and delete them
+      if isinstance(ret,tuple):
+        ret[3].pop()
+        print("  "*self.ctx+"Applying complete, ret[2] is now",ret[2])
+        if ret[0] != None:
+          for x in to_del:
+            ret[2].append((x.replace(current,""),self.vars[x]))
+      else:
+        print("  "*self.ctx+"Applying complete, ret is now",ret)
+
+      # delete all vars
+      for x in to_del:
+        print("DELETE",x)
+        del self.vars[x]
       
-      for k,v in context_vars:
-        if v == None: del self.vars[k]
-        else:self.vars[k] = v
-    
-      print("  "*self.ctx+"Applying complete")
       return ret
+    
+    elif inversed:
+      print("  "*self.ctx+"/!\ Applying",val,"on non callable result `"+str(res)+"`")
+      raise WrongArgument
     else:
-      print("  "*self.ctx+"/!\ Applying",val,"on non callable result `"+str(res)+"`, assuming cste")
-      return res
+      # if we can't execute res with val, we will try to execute val with res
+      print("  "*self.ctx+"Testing inverted version")
+      return self.exec(val, res, True)
 
   def execute(self,string):
 
-    string = " ".join(string.split()) # to remove if strings are added as a default object
+    string = " ".join(string.split())
     string += " "
     shorten = string if len(string) <= 40 else string[:40]+"..."
 
@@ -209,25 +250,14 @@ class ConfigParser:
       data = data.strip()
       
       if state == "normal":
-        if char == "(": # if we have a subexpression
+        
+        if char == "(": # if we have a parenthesis expression
           
           if data != "":result = self.exec(result,self.get_expr(data))
           data = ""
           place = find_next_brackets(string[i:],"(",")")
-          # print("  "*self.ctx+"Finding closed at",place,"for",string[i:])
           if place != 0:
-            result = self.exec(result,self.execute(string[i+1:i+place]))
-            i += place
-          else:
-            raise UnclosedBrackets()
-        
-        elif char == "[": # if we have a delayed expression
-          
-          if data != "":result = self.exec(result,self.get_expr(data))
-          data = ""
-          place = find_next_brackets(string[i:],"[","]")
-          if place != 0:
-            result = self.exec(result,(None,(string[i+1:i+place])))
+            result = self.exec(result,(None,(string[i+1:i+place]),[],self.path.copy()))
             i += place
           else:
             raise UnclosedBrackets()
@@ -275,7 +305,7 @@ class ConfigParser:
           if place != 0:
             print("  "*self.ctx + "Applying custom fct to result (execute)")
               
-            fct_data = (data,string[i+1:i+place],[]) # context
+            fct_data = (data,string[i+1:i+place],[],self.path.copy()) # context
             result = self.exec(result,fct_data)
             data = ""
             i += place
@@ -290,7 +320,7 @@ class ConfigParser:
           if place != 0:
             print("  "*self.ctx + "Applying custom fct to result (execute)")
               
-            fct_data = (data,string[i:i+place+1],[]) # context
+            fct_data = (data,string[i:i+place+1],[],self.path.copy()) # context
             result = self.exec(result,fct_data)
             data = ""
             i += place
@@ -302,9 +332,9 @@ class ConfigParser:
           data += char
       i+=1
     
-    if isinstance(result,tuple) and result[0] == None:
+    while isinstance(result,tuple) and result[0] == None:
       print("  "*self.ctx+"Delayed expression executed as it is the last remaning one")
-      result = self.execute(result[1])
+      result = self.exec(result,None)
     shorten = str(result) if len(str(result)) <= 40 else str(result)[:40]+"..."
     print("  "*self.ctx + "Result is: `"+shorten+"`")
     self.ctx -= 1
@@ -323,7 +353,7 @@ class ConfigParser:
 
 
       if state == "clef":
-        if char == "=":
+        if char == ":":
           state = "val"
           self.path.append("")
         elif char == "{":
@@ -355,6 +385,7 @@ class ConfigParser:
 
           print("  "*self.ctx +"\n --- New Key ---\nSetting `"+path_str+"`")
           self.rec_counter = 0
+          print(self.path)
           self.vars[path_str] = self.execute(code)
           print("  "*self.ctx +"Key added. rec_counter="+str(self.rec_counter)+"\n")
           self.path[-1] = ""
@@ -372,7 +403,7 @@ class ConfigParser:
     print(vars)
 
 
-
   def start(self):
-    print("\n".join([k+":"+str(v) for k,v in self.vars.items()]))
+    print("\n".join([k+":"+str(v) for k,v in self.vars.items() if "_" in k]))
+    print(self.path)
     pass

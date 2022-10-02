@@ -1,12 +1,10 @@
 from parser import ConfigParser, StackOverflow, UnclosedBrackets
 
-
-
 def main():
 
   psr = ConfigParser()
   try:
-    file = "block_var_test"
+    file = "tests/rec.jl"
     
     f = open(file,"r")
     content = f.read()
